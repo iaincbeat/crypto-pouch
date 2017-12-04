@@ -141,6 +141,18 @@ function cryptoInit(password, options) {
       outDoc._id = uuid.v4()
     }
 
+    var relationalPouchData = {};
+    if (RelationalPouch && doc.hasOwnProperty('data')) {
+      for (var i = 0, len = ignore.length; i < len; i++) {
+        if (ignore[i].startsWith('data.')) {
+          var relKey = ignore[i].slice(5);
+
+          relationalPouchData[relKey] = doc.data[relKey]
+          delete doc.data[relKey]
+        }
+      }
+    }
+
     // Encrypting attachments is complicated
     // https://github.com/calvinmetcalf/crypto-pouch/pull/18#issuecomment-186402231
     if (doc._attachments) {
@@ -151,6 +163,14 @@ function cryptoInit(password, options) {
     return algo.encrypt(data, key, nonce, new Buffer(outDoc._id)).then(function (resp) {
       outDoc.tag = resp.tag;
       outDoc.data = resp.data;
+
+      if (RelationalPouch) {
+        outDoc.unencryptedData = {};
+        for (var attrname in relationalPouchData) {
+          outDoc.unencryptedData[attrname] = relationalPouchData[attrname];
+        }
+      }
+
       return outDoc;
     })
   }
@@ -158,11 +178,26 @@ function cryptoInit(password, options) {
     if (turnedOff || !doc.nonce || !doc._id || !doc.tag || !doc.data) {
       return doc;
     }
+
+    var relationalPouchData = {};
+    if (RelationalPouch) {
+      for (var attrname in doc.unencryptedData) {
+        relationalPouchData[attrname] = doc.unencryptedData[attrname];
+      }
+    }
+
     return algo.decrypt(new Buffer(doc.data, 'hex'), key, new Buffer(doc.nonce, 'hex'), new Buffer(doc._id), new Buffer(doc.tag, 'hex')).then(function (outData) {
       var out = JSON.parse(outData);
       for (var i = 0, len = ignore.length; i < len; i++) {
         out[ignore[i]] = doc[ignore[i]]
       }
+
+      if (RelationalPouch) {
+        for (var attrname in relationalPouchData) {
+          out.data[attrname] = relationalPouchData[attrname];
+        }
+      }
+
       return out;
     });
   }
