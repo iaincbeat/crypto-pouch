@@ -19875,10 +19875,22 @@ function genKey(password, salt) {
     });
   });
 }
-function cryptoInit(password, modP) {
+
+function cryptoInit(password, options) {
   var db = this;
   var key, pub;
   var turnedOff = false;
+  var ignore = ['_id', '_rev', '_deleted']
+  var modP;
+
+  if (options && options.ignore) {
+    ignore = ignore.concat(options.ignore);
+  }
+
+  if (options && options.modP) {
+    modP = options.modP;
+  }
+
   return db.get(configId).catch(function (err) {
     if (err.status === 404) {
       var doc = {
@@ -19923,37 +19935,70 @@ function cryptoInit(password, modP) {
     if (turnedOff) {
       return doc;
     }
+
     var id, rev;
-    if ('_id' in doc) {
-      id = doc._id;
-      delete doc._id;
-    } else {
-      id = uuid.v4();
-    }
-    if ('_rev' in doc) {
-      rev = doc._rev;
-      delete doc._rev;
-    }
+    var relationalPouchData = {};
     var nonce = crypto.randomBytes(12);
-    var data = JSON.stringify(doc);
     var outDoc = {
-      _id: id,
       nonce: nonce.toString('hex')
     };
-    if (rev) {
-      outDoc._rev = rev;
+    
+    for (var i = 0, len = ignore.length; i < len; i++) {
+      if (doc[ignore[i]]) {
+        outDoc[ignore[i]] = doc[ignore[i]]
+        delete doc[ignore[i]]
+      }
     }
+
+    if (!outDoc._id) {
+      outDoc._id = uuid.v4()
+    }
+
+    
+    if (RelationalPouch && doc.hasOwnProperty('data')) {
+      for (var i = 0, len = ignore.length; i < len; i++) {
+        if (ignore[i].startsWith('data.')) {
+          var relKey = ignore[i].slice(5);
+
+          relationalPouchData[relKey] = doc.data[relKey]
+          delete doc.data[relKey]
+        }
+      }
+    }
+
+    id = outDoc._id;
+    rev = outDoc._rev;
+
+    var data = JSON.stringify(doc);
+
     var cipher = chacha.createCipher(key, nonce);
     cipher.setAAD(new Buffer(id));
     outDoc.data = cipher.update(data).toString('hex');
     cipher.final();
     outDoc.tag = cipher.getAuthTag().toString('hex');
+
+    if (RelationalPouch) {
+      outDoc.unencryptedData = {};
+      for (var attrname in relationalPouchData) {
+        outDoc.unencryptedData[attrname] = relationalPouchData[attrname];
+      }
+    }
+
     return outDoc;
   }
   function decrypt(doc) {
-    if (turnedOff) {
+    if (turnedOff || !doc.nonce) {
       return doc;
     }
+
+    var relationalPouchData = {};
+    if (RelationalPouch) {
+      for (var attrname in doc.unencryptedData) {
+        relationalPouchData[attrname] = doc.unencryptedData[attrname];
+      }
+      delete doc.unencryptedData;
+    }
+
     var decipher = chacha.createDecipher(key, new Buffer(doc.nonce, 'hex'));
     decipher.setAAD(new Buffer(doc._id));
     decipher.setAuthTag(new Buffer(doc.tag, 'hex'));
@@ -19962,11 +20007,25 @@ function cryptoInit(password, modP) {
     // parse it AFTER calling final
     // you don't want to parse it if it has been manipulated
     out = JSON.parse(out);
-    out._id = doc._id;
-    out._rev = doc._rev;
+
+    for (var i = 0, len = ignore.length; i < len; i++) {
+      if (doc[ignore[i]]) {
+        out[ignore[i]] = doc[ignore[i]]
+      }
+    }
+
+    if (RelationalPouch) {
+      for (var attrname in relationalPouchData) {
+        if (relationalPouchData[attrname]) {
+          out.data[attrname] = relationalPouchData[attrname];
+        }
+      }
+    }
+
     return out;
   }
 }
+
 function randomize(buf) {
   var len = buf.length;
   var data = crypto.randomBytes(len);
