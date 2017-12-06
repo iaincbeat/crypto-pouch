@@ -1,4 +1,5 @@
-crypto pouch [![Build Status](https://travis-ci.org/calvinmetcalf/crypto-pouch.svg)](https://travis-ci.org/calvinmetcalf/crypto-pouch)
+crypto pouch /w added support for ignoring fields in Relational Pouch
+
 ===
 
 Plugin to encrypt a PouchDB/CouchDB database.
